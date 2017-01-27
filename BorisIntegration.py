@@ -12,9 +12,12 @@ import Stools as st
 import Scalculator as sc
 
 class vectors():
-    def Bvec(temp):
-        Br, By, Bz = [float(temp[N]) for N in range(3)]
-        return np.array([Br, By, Bz])
+    def Bvec(z):
+        if np.abs(z) <= 0.125:
+            mag_vec = np.array([0,0,9.0])
+        else:
+            mag_vec = np.array([0,0,0])
+        return mag_vec
     def vvec(temp):
         vr, vtheta, vz = temp
         return np.array([vr, vtheta, vz])
@@ -22,10 +25,6 @@ class vectors():
         rr, rtheta, rz = temp
         return np.array([rr, rtheta, rz])
     
-# importation and interpolation of the Magnetic Fields
-Brfield, Bzfield, Bfield = st.data_manager.filemanager('mfield2','load');
-Brinterp = st.tools.interp_(Brfield);
-Bzinterp = st.tools.interp_(Bzfield);
 
 def storagematrix(Nsteps):
     velocitymatrix = np.zeros((Nsteps,3));
@@ -69,14 +68,15 @@ def fun(n,r,z,**kwargs):
     vmat = kwargs.pop('vmat')
     pmat = kwargs.pop('pmat')
     N = sp.Beam.N;
-    mass = 1.673*10**-27;
+    mass = N*1.673*10**-27;
     charge = sp.Beam.charge*1.6*10**-19;
-    alpha = charge / (2*N*mass);
+    alpha = charge / (2*mass);
     dt = sp.Beam.dz/sp.Beam.Vz;
 
     # rotation vectors
-    t = alpha*(vectors.Bvec((0,0,Bzinterp[n])))*dt;
-    s = 2*t / (1+(np.vdot(t,t)));
+    magneticfield = vectors.Bvec(pmat[n,2])
+    t = alpha*(magneticfield)*dt;
+    s = 2*t / (1+(np.dot(t,t)));
     
     # transformation vectors
     vminus = vmat[n,:]
@@ -85,7 +85,7 @@ def fun(n,r,z,**kwargs):
     #change in velocity vector    
     vrotation = np.cross(vprime,s)
     
-    return t, s, vrotation
+    return vrotation
 
 def boris():
     #constants for reference
@@ -96,15 +96,12 @@ def boris():
     dt = sp.Beam.dz/sp.Beam.Vz;
     z0 = zvec[0]
     r0 = sp.Inner_coil.Rmin/2.0
-    #storage matrices for various vectors
-    vptest, vrottest = storagematrix(itersteps)
-    ttest, stest = storagematrix(itersteps)
-    
+    theta0 = (8*10**(-6)*sp.Beam.Vz/r0**2)
     #loading container lists
     velocitymatrix, positionmatrix = storagematrix(itersteps);
     
     #populate the 0th list position of each* container matrix
-    velocitymatrix[0,:] = vectors.vvec((1.0, -8*10**-6/r0, sp.Beam.Vz));
+    velocitymatrix[0,:] = vectors.vvec((0, -theta0*r0, sp.Beam.Vz));
     positionmatrix[0,:] = vectors.rvec((r0,0,z0));
     
     #half step forward in velocity
@@ -112,10 +109,48 @@ def boris():
     for ii in itercounter:
         zpos = zvec[ii]
         rpos = positionmatrix[ii,0]
-        t, s, vrotation = fun(ii,rpos,zpos,vmat = velocitymatrix, pmat = positionmatrix)
-        ttest[ii+1,:]  = t
-        stest[ii+1,:] = s
-        vrottest[ii+1,:] = vrotation
+        vrotation = fun(ii,rpos,zpos,vmat = velocitymatrix, pmat = positionmatrix)
+        
         velocitymatrix[ii+1,:] = (velocitymatrix[ii,:] + vrotation)
         positionmatrix[ii+1,:] = (positionmatrix[ii,:] + velocitymatrix[ii,:]*dt)
     return positionmatrix, velocitymatrix
+    
+def BMmain():
+    from matplotlib import pyplot as plt
+    
+    N = sp.Beam.N;
+    mass = N*1.673*10**-27
+    
+    position, velocity = boris()
+    radius = position[:,0]
+    angle = position[:,1]
+    z = position[:,2]
+    
+    momentum = mass*velocity
+    angular_momentum = np.cross(position,momentum)
+    
+    plt.figure('r vs z')
+    plt.plot(z,radius)
+    plt.title('radius vs z')
+    plt.ylabel('radius')
+    
+    
+    plt.figure('theta vs angle')
+    plt.plot(radius,angle)
+    plt.title('angle vs radius')
+    plt.ylabel('theta(rad)')
+    
+    
+    plt.figure('angle vs z')
+    plt.plot(z,angle)
+    plt.title('angle vs z')
+    plt.ylabel('theta')
+    
+    
+    plt.figure('L vs z')
+    plt.plot(z,np.abs((angular_momentum[0,2]-angular_momentum[:,2])/angular_momentum[0,2]))
+    plt.title('angular momentum vs z')
+    plt.ylabel('delta L / L')
+    plt.show()
+
+    pass
